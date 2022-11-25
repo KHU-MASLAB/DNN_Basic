@@ -1,6 +1,6 @@
 # DNN_Basic
 ***Written by. Hyeonbeen Lee***  
-Basic level DNN codes.
+Basic level DNN codes with PyTorch.
 
 *DNN_Basics.py*: Train, save, and load simple fully-connected DNN.  
 *Module_DNN.py*: Multi Layer Perceptron module using torch.nn.Module class.  
