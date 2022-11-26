@@ -24,7 +24,7 @@ def Train():
     dataloader = DataLoader(TensorDataset(data_input, data_output),
                             batch_size=1024,
                             shuffle=True,
-                            pin_memory=False,
+                            pin_memory=True,
                             num_workers=4,
                             persistent_workers=True)
     optimizer = torch.optim.Adam([{"params": DNN.parameters(), "lr": 1e-3}])
