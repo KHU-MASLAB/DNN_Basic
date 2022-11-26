@@ -83,7 +83,7 @@ def Train():
                     "output_mean": output_mean, "output_std": output_std,
                     "loss_values": loss_values, "state_dict": best_network_param}
     torch.save(network_info, "DNN.pt")
-    print(f"Saved the best model from Epoch {np.argmin(loss_values)} (UnscaledMSE={np.min(loss_values):.5E})")
+    print(f"Saved the best model from Epoch {np.argmin(loss_values)+1} (UnscaledMSE={np.min(loss_values):.5E})")
 
 def LoadAndPredict():
     # Initialize MLP module
