@@ -65,7 +65,7 @@ class MLP(torch.nn.Module):
             torch.nn.init.kaiming_uniform_(layer.weight, a=np.sqrt(5), nonlinearity='leaky_relu')
             if layer.bias is not None:
                 torch.nn.init.zeros_(layer.bias)
-    
+
     def __initializer_He(self, layer):
         if isinstance(layer, (torch.nn.Linear)):
             torch.nn.init.kaiming_normal_(layer.weight, a=0, nonlinearity='relu')

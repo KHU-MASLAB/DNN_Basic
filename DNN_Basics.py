@@ -31,6 +31,7 @@ def Train():
     
     network_parameters = []
     loss_values = []
+    r2_values = []
     for epoch in range(Epochs):
         total_data = []
         total_pred = []
@@ -65,17 +66,19 @@ def Train():
             total_data.append(batch_output.detach().cpu())
             total_pred.append(pred_output.detach().cpu())
         # Concatenate batches
-        total_data = torch.cat(total_data, dim=0)
-        total_pred = torch.cat(total_pred, dim=0)
+        total_data = torch.cat(total_data, dim=0).flatten()
+        total_pred = torch.cat(total_pred, dim=0).flatten()
         
         # Calculate accuracies
+        # These are one epoch batch-averaged results.
         R2score = r2_score(total_data, total_pred)
-        UnscaledMSE = torch.square(torch.mean(total_data - total_pred))
-        print(f"Epoch {epoch + 1}: R2={R2score:.5f}, UnscaledMSE={UnscaledMSE:.5E}")
+        UnscaledMSE = torch.mean(torch.square(total_data - total_pred))
+        print(f"Epoch {epoch + 1}: R2={R2score:.4f}, UnscaledMSE={UnscaledMSE:.4E}")
         
         # Record network parameters and loss values
         network_parameters.append(DNN.state_dict())
         loss_values.append(UnscaledMSE)
+        r2_values.append(R2score)
     
     # Save network parameters with normalization parameters
     best_network_param = network_parameters[np.argmin(loss_values)]
@@ -83,7 +86,7 @@ def Train():
                     "output_mean": output_mean, "output_std": output_std,
                     "loss_values": loss_values, "state_dict": best_network_param}
     torch.save(network_info, "DNN.pt")
-    print(f"Saved the best model from Epoch {np.argmin(loss_values)+1} (UnscaledMSE={np.min(loss_values):.5E})")
+    print(f"Saved the best model from Epoch {np.argmin(loss_values) + 1} (UnscaledMSE={np.min(loss_values):.4E})")
 
 def LoadAndPredict():
     # Initialize MLP module
@@ -118,11 +121,14 @@ def LoadAndPredict():
         total_pred = total_pred * output_std + output_mean
         total_pred = total_pred.cpu()  # to CPU
     
+    data_output = data_output.flatten()
+    total_pred = total_pred.flatten()
     # Plot
     fig, ax = plt.subplots(2, 2, figsize=(9, 9))
     ax[0, 0].scatter(data_output, total_pred, s=4, c='black')
     R2score = r2_score(data_output, total_pred)
-    ax[0, 0].set_title(f"$R^2$={R2score:.5f}", fontsize=25)
+    UnscaledMSE = torch.mean(torch.square(data_output - total_pred))
+    ax[0, 0].set_title(f"$R^2$={R2score:.5f}\nUnscaledMSE={UnscaledMSE:.4E}", fontsize=18)
     ax[0, 0].set_xlabel("Label", fontsize=20)
     ax[0, 0].set_ylabel("Prediction", fontsize=20)
     
@@ -148,5 +154,5 @@ def LoadAndPredict():
     plt.show()
 
 if __name__ == '__main__':
-    # Train()
+    Train()
     LoadAndPredict()
