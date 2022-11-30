@@ -21,12 +21,18 @@ def Train():
     input_std = data_input.std(dim=0).cuda()
     output_std = data_output.std(dim=0).cuda()
     
-    dataloader = DataLoader(TensorDataset(data_input, data_output),
+    dataloader_train = DataLoader(TensorDataset(data_input, data_output),
                             batch_size=1024,
                             shuffle=True,
                             pin_memory=True,
                             num_workers=4,
                             persistent_workers=True)
+    dataloader_eval = DataLoader(TensorDataset(data_input, data_output),
+                                  batch_size=1024,
+                                  shuffle=False, # affects R2 score
+                                  pin_memory=True,
+                                  num_workers=2,
+                                  persistent_workers=True)
     optimizer = torch.optim.Adam([{"params": DNN.parameters(), "lr": 1e-3}])
     
     network_parameters = []
@@ -35,7 +41,8 @@ def Train():
     for epoch in range(Epochs):
         total_data = []
         total_pred = []
-        for idx_batch, batch in enumerate(dataloader):
+        # Training stage
+        for idx_batch, batch in enumerate(dataloader_train):
             batch_input, batch_output = batch
             
             # Send batch to GPU
@@ -58,29 +65,53 @@ def Train():
                 param.grad = None
             loss.backward()
             optimizer.step()
-            
-            # Save unscaled result of one epoch
-            with torch.no_grad():
+        # End of training stage
+        
+        # Evaluation stage
+        DNN.eval()
+        with torch.no_grad():
+            for idx_batch, batch in enumerate(dataloader_eval):
+                batch_input, batch_output = batch
+        
+                # Send batch to GPU
+                batch_input = batch_input.cuda()
+        
+                # Data scaling
+                with torch.no_grad():
+                    batch_input = (batch_input - input_mean) / input_std
+        
+                # Forward
+                pred_output = DNN.forward(batch_input)
+                
+                # Unscale
                 pred_output = pred_output * output_std + output_mean
-                batch_output = batch_output * output_std + output_mean
-            total_data.append(batch_output.detach().cpu())
-            total_pred.append(pred_output.detach().cpu())
+                
+                # Save
+                total_data.append(batch_output)
+                total_pred.append(pred_output.cpu())
+        DNN.train()
+        # End of evaluation stage
+        
         # Concatenate batches
         total_data = torch.cat(total_data, dim=0).flatten()
         total_pred = torch.cat(total_pred, dim=0).flatten()
         
-        # Calculate accuracies
-        # These are one epoch batch-averaged results.
+        # Compute accuracy
         R2score = r2_score(total_data, total_pred)
         UnscaledMSE = torch.mean(torch.square(total_data - total_pred))
         print(f"Epoch {epoch + 1}: R2={R2score:.4f}, UnscaledMSE={UnscaledMSE:.4E}")
         
-        # Record network parameters and loss values
-        network_parameters.append(DNN.state_dict())
+        # Record network parameters
+        current_network_parameter=DNN.state_dict()
+        for name,param in current_network_parameter.items():
+            current_network_parameter[name]=param.cpu() # Params must be saved on CPU
+        network_parameters.append(current_network_parameter)
+        
+        # Record accuracy scores
         loss_values.append(UnscaledMSE)
         r2_values.append(R2score)
     
-    # Save network parameters with normalization parameters
+    # Save network parameters and normalization parameters (mean, std of input, output)
     best_network_param = network_parameters[np.argmin(loss_values)]
     network_info = {"input_mean": input_mean, "input_std": input_std,
                     "output_mean": output_mean, "output_std": output_std,
@@ -99,36 +130,52 @@ def LoadAndPredict():
     network_info = torch.load("DNN.pt")
     DNN.load_state_dict(network_info["state_dict"])
     
-    data_input = torch.FloatTensor(TrainData[Input].to_numpy())
-    data_output = torch.FloatTensor(TrainData[Output].to_numpy())
-    
     input_mean = network_info["input_mean"]
     input_std = network_info["input_std"]
     output_mean = network_info["output_mean"]
     output_std = network_info["output_std"]
     loss_values = network_info["loss_values"]
-    
+
+    data_input = torch.FloatTensor(TrainData[Input].to_numpy())
+    data_output = torch.FloatTensor(TrainData[Output].to_numpy())
+    dataloader_eval = DataLoader(TensorDataset(data_input, data_output),
+                                  batch_size=1024,
+                                  shuffle=False, # affects R2 score
+                                  pin_memory=True,
+                                  num_workers=2,
+                                  persistent_workers=True)
     # Predict
     DNN.eval()
+    total_data=[]
+    total_pred=[]
     with torch.no_grad():
-        data_input = data_input.cuda()  # to GPU
-        data_input = (data_input - input_mean) / input_std  # Scale input
+        for idx_batch, batch in enumerate(dataloader_eval):
+            batch_input, batch_output = batch
         
-        total_pred = DNN.forward(data_input)
+            # Send batch to GPU
+            batch_input = batch_input.cuda()
         
-        data_input = data_input * input_std + input_mean
-        data_input = data_input.cpu()  # to CPU
-        total_pred = total_pred * output_std + output_mean
-        total_pred = total_pred.cpu()  # to CPU
+            # Data scaling
+            with torch.no_grad():
+                batch_input = (batch_input - input_mean) / input_std
+        
+            # Forward
+            pred_output = DNN.forward(batch_input)
+        
+            # Unscale
+            pred_output = pred_output * output_std + output_mean
+            total_data.append(batch_output)
+            total_pred.append(pred_output.cpu())
+
+    total_data = torch.cat(total_data, dim=0).flatten()
+    total_pred = torch.cat(total_pred, dim=0).flatten()
+    R2score = r2_score(data_output, total_pred)
+    UnscaledMSE = torch.mean(torch.square(total_data - total_pred))
     
-    data_output = data_output.flatten()
-    total_pred = total_pred.flatten()
     # Plot
     fig, ax = plt.subplots(2, 2, figsize=(9, 9))
     ax[0, 0].scatter(data_output, total_pred, s=4, c='black')
-    R2score = r2_score(data_output, total_pred)
-    UnscaledMSE = torch.mean(torch.square(data_output - total_pred))
-    ax[0, 0].set_title(f"$R^2$={R2score:.5f}\nUnscaledMSE={UnscaledMSE:.4E}", fontsize=18)
+    ax[0, 0].set_title(f"$R^2$={R2score:.4f}\nUnscaledMSE={UnscaledMSE:.4E}", fontsize=18)
     ax[0, 0].set_xlabel("Label", fontsize=20)
     ax[0, 0].set_ylabel("Prediction", fontsize=20)
     
